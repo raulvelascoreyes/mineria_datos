@@ -24,8 +24,6 @@ Sin embargo, hay categorías de problemas donde estos modelos tienen limitacione
 - **Texto**: ¿cómo capturas que "banco" significa cosas distintas en "banco de peces" y "banco financiero"?
 - **Series de tiempo largas**: ¿cómo modelas dependencias que ocurren con cientos de pasos de distancia?
 
-Las **redes neuronales artificiales** nacieron precisamente para atacar este tipo de problemas. Y aunque han existido desde los años 50, su dominio moderno llegó con tres ingredientes: grandes volúmenes de datos, poder de cómputo masivo (GPUs) y algoritmos de entrenamiento eficientes.
-
 ::: {.callout-note}
 ## ¿Qué significa "deep learning"?
 
@@ -249,7 +247,6 @@ No hay una respuesta única. Es un hiperparámetro que se ajusta con validación
 
 - **Pocas neuronas**: el modelo puede tener sesgo (underfitting), no captura la complejidad.
 - **Muchas neuronas**: puede sobreajustar (overfitting) y tarda mucho en entrenar.
-- Para problemas de negocio con datos tabulares: 1-3 capas ocultas con 64-256 neuronas suele ser suficiente.
 - Para imágenes o texto: arquitecturas especializadas (CNN, Transformers) funcionan mucho mejor que un MLP genérico.
 :::
 
