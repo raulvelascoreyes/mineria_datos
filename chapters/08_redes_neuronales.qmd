@@ -252,6 +252,162 @@ No hay una respuesta única. Es un hiperparámetro que se ajusta con validación
 
 ---
 
+## Redes neuronales como aproximadores universales
+
+¿Por qué funcionan las redes neuronales? ¿Qué garantía teórica tenemos de que pueden resolver problemas complejos? La respuesta está en uno de los resultados más importantes de la teoría del aprendizaje automático.
+
+::: {.callout-note}
+## Teorema de Aproximación Universal
+
+Una red feedforward con **al menos una capa oculta**, un número suficiente de neuronas, y una función de activación no lineal puede aproximar **cualquier función continua** definida en un conjunto compacto de $\mathbb{R}^n$, con cualquier precisión deseada.
+
+Formalmente: para toda función continua $f: [0,1]^n \to \mathbb{R}$ y todo $\varepsilon > 0$, existe una red neuronal $\hat{f}$ tal que $\sup_x |f(x) - \hat{f}(x)| < \varepsilon$.
+:::
+
+La implicación práctica es poderosa: no necesitas saber de antemano qué forma matemática tiene el patrón que buscas. La red neuronal es una "navaja suiza" funcional: dado suficientes neuronas y datos, puede representarlo.
+
+### Intuición: construir funciones con neuronas
+
+La clave está en cómo la combinación de muchas funciones simples no lineales puede construir formas arbitrariamente complejas. Cada neurona con activación sigmoid, por ejemplo, produce una curva en forma de escalón suave. Sumando muchas de estas curvas escaladas y desplazadas, podemos aproximar cualquier función.
+
+```{python}
+#| label: fig-aproximacion-universal
+#| fig-cap: "Demostración del teorema de aproximación universal: una red MLP con una capa oculta aproxima funciones cada vez mejor al aumentar el número de neuronas."
+#| fig-width: 13
+#| fig-height: 4
+#| echo: true
+
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.neural_network import MLPRegressor
+
+np.random.seed(0)
+
+# Función objetivo con varias oscilaciones — difícil de capturar con pocas neuronas
+def f_objetivo(x):
+    return np.sin(2 * np.pi * x) + 0.5 * np.cos(6 * np.pi * x)
+
+X_train = np.linspace(0, 1, 200).reshape(-1, 1)
+y_train = f_objetivo(X_train.ravel()) + np.random.normal(0, 0.1, 200)
+
+X_plot = np.linspace(0, 1, 500).reshape(-1, 1)
+y_real = f_objetivo(X_plot.ravel())
+
+n_neuronas = [2, 8, 64]
+colores = ['#DD8452', '#4C72B0', '#55A868']
+
+fig, axes = plt.subplots(1, 3, figsize=(13, 4), sharey=True)
+
+for ax, n, color in zip(axes, n_neuronas, colores):
+    # lbfgs: optimizador cuasi-Newton, converge al mejor mínimo alcanzable
+    # para cada capacidad — hace visible la diferencia entre 2, 8 y 64 neuronas
+    modelo = MLPRegressor(
+        hidden_layer_sizes=(n,),
+        activation='tanh',
+        solver='lbfgs',
+        max_iter=10000,
+        random_state=0,
+    )
+    modelo.fit(X_train, y_train)
+    y_pred = modelo.predict(X_plot)
+
+    ax.scatter(X_train, y_train, s=10, color='gray', alpha=0.4, zorder=2, label='Observaciones')
+    ax.plot(X_plot, y_real, 'k--', lw=2, label='Función real', zorder=3)
+    ax.plot(X_plot, y_pred, color=color, lw=2.5, label=f'Red ({n} neuronas)', zorder=4)
+    ax.fill_between(X_plot.ravel(), y_real, y_pred, alpha=0.15, color=color)
+
+    mse = np.mean((y_real - y_pred)**2)
+    ax.set_title(f'{n} neurona{"s" if n > 1 else ""} oculta{"s" if n > 1 else ""}\nMSE = {mse:.4f}',
+                 fontsize=11, color=color, fontweight='bold')
+    ax.set_xlabel('x', fontsize=10)
+    ax.set_ylabel('f(x)', fontsize=10)
+    ax.legend(fontsize=8.5)
+    ax.grid(True, alpha=0.3)
+
+plt.suptitle('Aproximación Universal: más neuronas → mejor aproximación', fontsize=13, y=1.02)
+plt.tight_layout()
+plt.show()
+```
+
+### Las neuronas aprenden "piezas" de la función
+
+Una forma de entender por qué funciona: cada neurona en la capa oculta aprende a "activarse" en una región diferente del espacio de entrada. La capa de salida luego combina linealmente estas activaciones parciales. Es como describir una función complicada como suma de funciones base más simples —igual que las series de Fourier descomponen señales en senos y cosenos.
+
+```{python}
+#| label: fig-activaciones-parciales
+#| fig-cap: "Cada neurona oculta aprende una respuesta local (arriba). La capa de salida combina estas respuestas para aproximar la función objetivo (abajo)."
+#| fig-width: 11
+#| fig-height: 6
+#| echo: true
+
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.neural_network import MLPRegressor
+
+np.random.seed(7)
+
+def f_objetivo(x):
+    return np.sin(2 * np.pi * x) + 0.5 * np.cos(6 * np.pi * x)
+
+X_train = np.linspace(0, 1, 200).reshape(-1, 1)
+y_train = f_objetivo(X_train.ravel()) + np.random.normal(0, 0.1, 200)
+
+modelo = MLPRegressor(hidden_layer_sizes=(8,), activation='tanh',
+                      solver='lbfgs', max_iter=10000, random_state=7)
+modelo.fit(X_train, y_train)
+
+X_plot = np.linspace(0, 1, 500).reshape(-1, 1)
+
+# Activaciones de la capa oculta
+W1, b1 = modelo.coefs_[0], modelo.intercepts_[0]
+W2, b2 = modelo.coefs_[1], modelo.intercepts_[1]
+
+Z1 = X_plot @ W1 + b1
+A1 = np.tanh(Z1)  # (500, 8)
+
+fig, axes = plt.subplots(2, 1, figsize=(11, 6))
+
+# Activaciones individuales
+ax = axes[0]
+for i in range(8):
+    ax.plot(X_plot, A1[:, i], lw=1.5, alpha=0.8, label=f'Neurona {i+1}')
+ax.set_title('Activaciones individuales de las 8 neuronas ocultas', fontsize=11)
+ax.set_ylabel('Activación (tanh)', fontsize=10)
+ax.legend(loc='upper right', fontsize=7.5, ncol=4)
+ax.grid(True, alpha=0.3)
+ax.axhline(0, color='black', lw=0.8)
+
+# Suma ponderada vs función real
+ax = axes[1]
+y_pred = modelo.predict(X_plot)
+y_real = f_objetivo(X_plot.ravel())
+ax.plot(X_plot, y_real, 'k--', lw=2, label='Función real')
+ax.plot(X_plot, y_pred, color='#4C72B0', lw=2.5, label='Combinación de neuronas (red)')
+ax.fill_between(X_plot.ravel(), y_real, y_pred, alpha=0.15, color='red', label='Error')
+ax.set_title('Combinación lineal de activaciones → aproximación de la función', fontsize=11)
+ax.set_xlabel('x', fontsize=10)
+ax.set_ylabel('f(x)', fontsize=10)
+ax.legend(fontsize=9)
+ax.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+```
+
+::: {.callout-warning}
+## El teorema dice "puede", no "aprenderá automáticamente"
+
+El teorema de aproximación universal garantiza la **existencia** de una red que aproxima la función, pero no garantiza que el proceso de entrenamiento la encuentre. En la práctica:
+
+- Con pocos datos, la red puede sobreajustar aunque tenga capacidad suficiente.
+- Con un *learning rate* mal elegido, puede converger a un mínimo local pobre.
+- Con muy pocas neuronas, no tiene capacidad suficiente.
+
+El teorema es la justificación teórica de **por qué tiene sentido usar redes neuronales**. El arte del entrenamiento es cómo guiar al optimizador para que encuentre esa solución.
+:::
+
+---
+
 ## ¿Cómo aprende la red?
 
 Aquí está el corazón de todo. Aprender, para una red neuronal, significa encontrar los valores de los pesos $w$ y sesgos $b$ que hacen que las predicciones sean lo más cercanas posible a los valores reales. El proceso tiene tres etapas que se repiten cíclicamente.
