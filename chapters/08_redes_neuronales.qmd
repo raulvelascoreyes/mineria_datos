@@ -715,6 +715,393 @@ plt.show()
 
 ---
 
+## Arquitecturas comunes para detección de patrones
+
+El MLP es la arquitectura más general, pero la práctica ha demostrado que diseñar la arquitectura según la estructura del problema produce modelos mucho más eficientes. Dos arquitecturas especializadas dominan el aprendizaje no supervisado y el procesamiento de imágenes.
+
+---
+
+### Autoencoders
+
+Un **autoencoder** es una red entrenada para reconstruir su propia entrada. El truco está en forzar que la información pase por un **cuello de botella** (espacio latente) de menor dimensión que la entrada. Para reconstruir bien la salida, la red debe aprender una representación comprimida que capture lo esencial.
+
+| Parte | Función |
+|-------|---------|
+| **Encoder** | Comprime la entrada hacia el espacio latente |
+| **Espacio latente** | Representación compacta aprendida |
+| **Decoder** | Reconstruye la entrada desde el espacio latente |
+
+La pérdida es el **error de reconstrucción** — qué tan diferente es la salida de la entrada. No se necesitan etiquetas: es aprendizaje **no supervisado**.
+
+```{python}
+#| label: fig-autoencoder-arquitectura
+#| fig-cap: "Arquitectura de un autoencoder: el encoder comprime la entrada hasta el cuello de botella y el decoder la reconstruye. El cuello de botella fuerza a la red a aprender solo lo esencial."
+#| fig-width: 11
+#| fig-height: 4.5
+#| echo: true
+
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+
+fig, ax = plt.subplots(figsize=(11, 4.5))
+ax.set_xlim(0, 11)
+ax.set_ylim(0, 6)
+ax.axis('off')
+
+capas = [
+    (1.0,  4.0, '#55A868', 'Entrada\n(64 dim)'),
+    (2.9,  2.6, '#4C72B0', 'Encoder\n(32)'),
+    (4.8,  1.0, '#c0392b', 'Latente\n(2 dim)'),
+    (6.7,  2.6, '#4C72B0', 'Decoder\n(32)'),
+    (8.6,  4.0, '#DD8452', 'Salida\n(64 dim)'),
+]
+
+for x, h, color, label in capas:
+    rect = mpatches.FancyBboxPatch((x - 0.55, 3 - h/2), 1.1, h,
+                                    boxstyle='round,pad=0.05',
+                                    facecolor=color, edgecolor='white',
+                                    linewidth=1.5, zorder=3, alpha=0.9)
+    ax.add_patch(rect)
+    ax.text(x, 3, label, ha='center', va='center', fontsize=9.5,
+            color='white', fontweight='bold', zorder=4)
+
+xs = [c[0] for c in capas]
+for i in range(len(xs) - 1):
+    ax.annotate('', xy=(xs[i+1] - 0.57, 3), xytext=(xs[i] + 0.57, 3),
+                arrowprops=dict(arrowstyle='->', color='#555555', lw=1.8))
+
+ax.annotate('', xy=(4.8, 0.7), xytext=(1.0, 0.7),
+            arrowprops=dict(arrowstyle='<->', color='#4C72B0', lw=1.5))
+ax.text(2.9, 0.3, 'Encoder', ha='center', fontsize=10, color='#4C72B0', fontweight='bold')
+
+ax.annotate('', xy=(8.6, 0.7), xytext=(4.8, 0.7),
+            arrowprops=dict(arrowstyle='<->', color='#4C72B0', lw=1.5))
+ax.text(6.7, 0.3, 'Decoder', ha='center', fontsize=10, color='#4C72B0', fontweight='bold')
+
+ax.text(4.8, 5.6, '↓ Cuello de botella', ha='center', fontsize=10,
+        color='#c0392b', fontweight='bold')
+
+ax.set_title('Arquitectura de un Autoencoder', fontsize=13, pad=8)
+plt.tight_layout()
+plt.show()
+```
+
+```{python}
+#| label: fig-autoencoder-demo
+#| fig-cap: "Autoencoder entrenado sobre dígitos escritos a mano (8×8 píxeles). Izquierda: comparación entre originales y sus reconstrucciones. Centro: espacio latente 2D — cada punto es un dígito comprimido a dos números. Derecha: error de reconstrucción por clase."
+#| fig-width: 14
+#| fig-height: 4.5
+#| echo: true
+
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.datasets import load_digits
+from sklearn.neural_network import MLPRegressor
+from sklearn.preprocessing import MinMaxScaler
+
+np.random.seed(42)
+digits = load_digits()
+X = MinMaxScaler().fit_transform(digits.data)  # 1797 x 64
+
+# Autoencoder: target = input, cuello de botella en 2D
+# Arquitectura: 64 → 32 → 2 → 32 → 64
+ae = MLPRegressor(
+    hidden_layer_sizes=(32, 2, 32),
+    activation='tanh',
+    solver='adam',
+    max_iter=600,
+    random_state=42,
+    learning_rate_init=0.001,
+)
+ae.fit(X, X)
+X_rec = ae.predict(X)
+
+# Espacio latente 2D: forward manual hasta el cuello de botella
+W1, b1 = ae.coefs_[0], ae.intercepts_[0]  # 64 → 32
+W2, b2 = ae.coefs_[1], ae.intercepts_[1]  # 32 → 2
+h1 = np.tanh(X @ W1 + b1)
+latente = np.tanh(h1 @ W2 + b2)
+
+fig, axes = plt.subplots(1, 3, figsize=(14, 4.5))
+colores = plt.cm.tab10(np.arange(10) / 10)
+
+# Panel 1: originales vs reconstruidas (dígitos 0-4)
+ax = axes[0]
+filas = []
+for parte in (X, X_rec):
+    fila = [parte[np.where(digits.target == d)[0][0]].reshape(8, 8) for d in range(5)]
+    filas.append(np.concatenate(fila, axis=1))
+grid = np.concatenate(filas, axis=0)
+ax.imshow(grid, cmap='gray_r', vmin=0, vmax=1)
+ax.axhline(7.5, color='#c0392b', lw=1.5, ls='--')
+for d in range(5):
+    ax.text(d * 8 + 4, -1.5, str(d), ha='center', fontsize=10, fontweight='bold')
+ax.text(-2.5, 4,   'Original',     va='center', rotation=90, fontsize=9, color='#333')
+ax.text(-2.5, 12,  'Reconstruida', va='center', rotation=90, fontsize=9, color='#c0392b')
+ax.set_title('Original vs Reconstruida', fontsize=11)
+ax.axis('off')
+
+# Panel 2: espacio latente 2D
+ax = axes[1]
+for d in range(10):
+    mask = digits.target == d
+    ax.scatter(latente[mask, 0], latente[mask, 1], s=12, alpha=0.6,
+               color=colores[d], label=str(d))
+ax.set_title('Espacio latente 2D\n(cuello de botella = 2 neuronas)', fontsize=10)
+ax.set_xlabel('Dimensión 1', fontsize=10)
+ax.set_ylabel('Dimensión 2', fontsize=10)
+ax.legend(title='Dígito', fontsize=7.5, ncol=2, loc='best')
+ax.grid(True, alpha=0.3)
+
+# Panel 3: MSE por clase
+ax = axes[2]
+mse_por_clase = [
+    np.mean((X[digits.target == d] - X_rec[digits.target == d])**2)
+    for d in range(10)
+]
+ax.bar(range(10), mse_por_clase, color=colores)
+ax.set_xlabel('Dígito', fontsize=10)
+ax.set_ylabel('MSE de reconstrucción', fontsize=10)
+ax.set_title('Error de reconstrucción por clase', fontsize=11)
+ax.set_xticks(range(10))
+ax.grid(True, alpha=0.3, axis='y')
+
+plt.tight_layout()
+plt.show()
+```
+
+::: {.callout-note}
+## Usos principales de los autoencoders
+
+- **Reducción de dimensionalidad no lineal**: el espacio latente es como un PCA no lineal — captura relaciones curvilíneas que PCA no puede.
+- **Detección de anomalías**: si un dato tiene error de reconstrucción muy alto, es probable que sea inusual; el modelo no "sabe" cómo comprimirlo porque no lo vio en entrenamiento.
+- **Denoising**: entrenando con entrada ruidosa y salida limpia, la red aprende a filtrar el ruido.
+:::
+
+---
+
+### Redes Convolucionales (CNN)
+
+Un MLP trata cada píxel de una imagen como una variable independiente. El problema: **ignora completamente la estructura espacial**. Si desplazas un objeto 10 píxeles a la derecha, el MLP lo ve como una imagen completamente diferente.
+
+Las **Redes Convolucionales** (*Convolutional Neural Networks*, CNN) resuelven esto con dos ideas:
+
+1. **Conectividad local**: cada neurona solo ve una pequeña región de la imagen (su *campo receptivo*), no todos los píxeles.
+2. **Compartición de pesos**: el mismo filtro se aplica en todas las posiciones de la imagen. Un filtro que detecta bordes lo hace en cualquier lugar, no solo en una esquina fija.
+
+#### La operación de convolución
+
+Un **filtro** (*kernel*) es una pequeña matriz de pesos que se desliza sobre la imagen. En cada posición realiza una multiplicación elemento a elemento y suma el resultado: eso produce un **mapa de características** (*feature map*).
+
+```{python}
+#| label: fig-convolucion
+#| fig-cap: "Tres filtros 3×3 aplicados a un dígito escrito a mano. Cada filtro detecta un tipo distinto de patrón: bordes horizontales, verticales o texturas. En una CNN, estos pesos se aprenden automáticamente."
+#| fig-width: 13
+#| fig-height: 5
+#| echo: true
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.signal import convolve2d
+from sklearn.datasets import load_digits
+
+digits = load_digits()
+img = digits.images[0].astype(float)  # dígito '0', 8×8
+
+filtros = {
+    'Bordes\nhorizontales': np.array([[-1,-1,-1],[0,0,0],[1,1,1]], dtype=float),
+    'Bordes\nverticales':   np.array([[-1,0,1],[-1,0,1],[-1,0,1]], dtype=float),
+    'Realce':               np.array([[0,-1,0],[-1,5,-1],[0,-1,0]], dtype=float),
+}
+
+fig, axes = plt.subplots(2, 4, figsize=(13, 5))
+
+axes[0, 0].imshow(img, cmap='gray_r')
+axes[0, 0].set_title('Imagen original\n(8×8 píxeles)', fontsize=10)
+axes[0, 0].axis('off')
+axes[1, 0].text(0.5, 0.5, 'Imagen\nde entrada', ha='center', va='center',
+                fontsize=10, transform=axes[1, 0].transAxes, color='#444')
+axes[1, 0].axis('off')
+
+for i, (nombre, filtro) in enumerate(filtros.items()):
+    fm = convolve2d(img, filtro, mode='same')
+
+    axes[0, i+1].imshow(fm, cmap='RdBu_r')
+    axes[0, i+1].set_title(f'Mapa de características\n{nombre}', fontsize=9.5)
+    axes[0, i+1].axis('off')
+
+    axes[1, i+1].imshow(filtro, cmap='RdBu_r', vmin=-2, vmax=2)
+    axes[1, i+1].set_title('Filtro 3×3', fontsize=9.5)
+    for ii in range(3):
+        for jj in range(3):
+            val = int(filtro[ii, jj])
+            axes[1, i+1].text(jj, ii, f'{val:+d}', ha='center', va='center',
+                              fontsize=12, fontweight='bold',
+                              color='white' if abs(val) > 1 else 'black')
+    axes[1, i+1].axis('off')
+
+plt.suptitle('Convolución: el mismo filtro se desliza sobre toda la imagen', fontsize=12, y=1.01)
+plt.tight_layout()
+plt.show()
+```
+
+#### Pooling: reducir sin perder lo importante
+
+Después de cada convolución, el mapa de características puede ser grande. El **pooling** lo reduce tomando un resumen de cada región pequeña. El más común es el **max pooling**: de cada ventana de 2×2 píxeles, conserva solo el valor máximo.
+
+```{python}
+#| label: fig-maxpooling
+#| fig-cap: "Max pooling 2×2 con stride 2: cada región de 2×2 se reduce a su valor máximo, reduciendo el mapa a la mitad en cada dimensión. Esto hace la representación más compacta e invariante a pequeñas traslaciones."
+#| fig-width: 10
+#| fig-height: 4
+#| echo: true
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+np.random.seed(3)
+entrada = np.array([
+    [1, 3, 2, 4],
+    [5, 6, 1, 2],
+    [3, 2, 7, 8],
+    [1, 4, 6, 3],
+], dtype=float)
+
+# Max pooling 2x2
+salida = np.array([
+    [max(entrada[r:r+2, c:c+2].ravel()) for c in range(0, 4, 2)]
+    for r in range(0, 4, 2)
+], dtype=float)
+
+fig, axes = plt.subplots(1, 3, figsize=(10, 4), gridspec_kw={'width_ratios': [4, 1, 2]})
+
+# Mapa de entrada con cuadrantes coloreados
+ax = axes[0]
+colores_region = ['#d5e8f5', '#fde8d5', '#d5f5e3', '#f5d5e8']
+regiones = [(0,0),(0,2),(2,0),(2,2)]
+for k, (r0, c0) in enumerate(regiones):
+    for dr in range(2):
+        for dc in range(2):
+            ax.add_patch(plt.Rectangle((c0+dc-0.5, r0+dr-0.5), 1, 1,
+                         facecolor=colores_region[k], edgecolor='white', lw=2, zorder=1))
+            val = int(entrada[r0+dr, c0+dc])
+            es_max = (entrada[r0+dr, c0+dc] == salida[r0//2, c0//2])
+            ax.text(c0+dc, r0+dr, str(val), ha='center', va='center',
+                    fontsize=14, fontweight='bold' if es_max else 'normal',
+                    color='#c0392b' if es_max else '#444', zorder=3)
+
+ax.set_xlim(-0.5, 3.5)
+ax.set_ylim(3.5, -0.5)
+ax.set_xticks([])
+ax.set_yticks([])
+ax.set_title('Entrada (4×4)', fontsize=11)
+for spine in ax.spines.values():
+    spine.set_visible(False)
+
+# Flecha
+ax = axes[1]
+ax.axis('off')
+ax.annotate('', xy=(0.9, 0.5), xytext=(0.1, 0.5),
+            xycoords='axes fraction',
+            arrowprops=dict(arrowstyle='->', color='#555', lw=2.5))
+ax.text(0.5, 0.65, 'Max\nPooling\n2×2', ha='center', va='bottom',
+        fontsize=9, transform=ax.transAxes, color='#555')
+
+# Mapa de salida
+ax = axes[2]
+for k, (r0, c0) in enumerate(regiones):
+    r_out, c_out = r0//2, c0//2
+    ax.add_patch(plt.Rectangle((c_out-0.5, r_out-0.5), 1, 1,
+                 facecolor=colores_region[k], edgecolor='white', lw=2, zorder=1))
+    ax.text(c_out, r_out, str(int(salida[r_out, c_out])), ha='center', va='center',
+            fontsize=14, fontweight='bold', color='#c0392b', zorder=3)
+
+ax.set_xlim(-0.5, 1.5)
+ax.set_ylim(1.5, -0.5)
+ax.set_xticks([])
+ax.set_yticks([])
+ax.set_title('Salida (2×2)\nvalor máximo de cada región', fontsize=11)
+for spine in ax.spines.values():
+    spine.set_visible(False)
+
+plt.suptitle('Max Pooling: reducción de dimensión preservando lo más activo', fontsize=12, y=1.02)
+plt.tight_layout()
+plt.show()
+```
+
+El pooling tiene dos efectos: reduce el tamaño del mapa (menos cómputo y parámetros en capas siguientes) y aporta **invarianza a pequeñas traslaciones** — si el patrón se mueve un píxel, el máximo de la región probablemente no cambia.
+
+#### Arquitectura de una CNN
+
+Una CNN típica apila bloques de **convolución + ReLU + pooling** que van extrayendo características cada vez más abstractas, seguidos de capas densas para la clasificación final.
+
+```{python}
+#| label: fig-cnn-arquitectura
+#| fig-cap: "Arquitectura típica de una CNN: bloques de convolución + pooling que reducen el espacio espacial mientras aumentan el número de mapas de características, seguidos de capas densas para clasificación."
+#| fig-width: 13
+#| fig-height: 5
+#| echo: true
+
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+
+fig, ax = plt.subplots(figsize=(13, 5))
+ax.set_xlim(0, 13)
+ax.set_ylim(0, 6)
+ax.axis('off')
+
+bloques = [
+    (0.9,  3.2, 2.4, '#55A868', 'Entrada\n28×28×1'),
+    (3.0,  2.8, 2.0, '#4C72B0', 'Conv + ReLU\n26×26×32'),
+    (5.0,  2.2, 1.5, '#4C72B0', 'Max Pooling\n13×13×32'),
+    (6.9,  1.8, 1.2, '#9b59b6', 'Conv + ReLU\n11×11×64'),
+    (8.6,  1.4, 0.9, '#9b59b6', 'Max Pooling\n5×5×64'),
+    (10.1, 1.1, 0.7, '#c0392b', 'Flatten\n1600'),
+    (11.5, 1.0, 0.6, '#DD8452', 'Dense\nSoftmax\n10 clases'),
+]
+
+for x, w, h, color, label in bloques:
+    rect = mpatches.FancyBboxPatch((x - w/2, 3 - h/2), w, h,
+                                    boxstyle='round,pad=0.07',
+                                    facecolor=color, edgecolor='white',
+                                    linewidth=1.5, zorder=3, alpha=0.9)
+    ax.add_patch(rect)
+    ax.text(x, 3, label, ha='center', va='center', fontsize=8.5,
+            color='white', fontweight='bold', zorder=4)
+
+xs = [b[0] for b in bloques]
+ws = [b[1] for b in bloques]
+for i in range(len(xs) - 1):
+    ax.annotate('', xy=(xs[i+1] - ws[i+1]/2, 3), xytext=(xs[i] + ws[i]/2, 3),
+                arrowprops=dict(arrowstyle='->', color='#555555', lw=1.6))
+
+ax.annotate('', xy=(9.3, 0.8), xytext=(1.8, 0.8),
+            arrowprops=dict(arrowstyle='<->', color='#4C72B0', lw=1.5))
+ax.text(5.5, 0.4, 'Extracción de características (convoluciones + pooling)',
+        ha='center', fontsize=9.5, color='#4C72B0', fontweight='bold')
+
+ax.annotate('', xy=(12.1, 0.8), xytext=(9.8, 0.8),
+            arrowprops=dict(arrowstyle='<->', color='#DD8452', lw=1.5))
+ax.text(11.0, 0.4, 'Clasificación',
+        ha='center', fontsize=9.5, color='#DD8452', fontweight='bold')
+
+ax.set_title('Arquitectura de una Red Convolucional (CNN)', fontsize=13, pad=8)
+plt.tight_layout()
+plt.show()
+```
+
+::: {.callout-note}
+## Por qué las CNN dominan en imágenes
+
+- **Invarianza traslacional**: el mismo filtro detecta un patrón sin importar dónde aparezca en la imagen.
+- **Jerarquía de características**: capas tempranas detectan bordes → capas medias detectan formas → capas profundas detectan objetos completos.
+- **Eficiencia paramétrica**: un filtro 3×3 tiene solo 9 pesos, sin importar el tamaño de la imagen. Un MLP equivalente sobre una imagen de 224×224 necesitaría millones de parámetros en la primera capa.
+:::
+
+---
+
 ## Resumen conceptual
 
 | Concepto | Qué es | Analogía |
